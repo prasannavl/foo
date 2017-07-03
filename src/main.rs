@@ -5,6 +5,7 @@ extern crate scheduled_thread_pool;
 extern crate tokio_core;
 extern crate tokio_openssl;
 extern crate tokio_io_timeout;
+extern crate tokio_proto;
 extern crate openssl;
 
 use bytes::BytesMut;
@@ -19,20 +20,29 @@ use std::sync::Arc;
 use scheduled_thread_pool::ScheduledThreadPool;
 use std::io::{self, Read, Write, Cursor};
 use tokio_core::net::TcpListener;
-use tokio_core::reactor::Core;
+use tokio_core::reactor::{Core, Handle};
 use tokio_io_timeout::TimeoutStream;
 use std::time::Duration;
 use openssl::ssl::{SslAcceptorBuilder, SslMethod};
 use openssl::x509::X509_FILETYPE_PEM;
 use tokio_openssl::SslAcceptorExt;
+use tokio_proto::streaming::pipeline::ServerProto;
+use std::fmt;
+use std::marker::PhantomData;
 
 fn main() {
     let mut core = Core::new().unwrap();
     let handle = core.handle();
 
     let mut acceptor = SslAcceptorBuilder::mozilla_intermediate_raw(SslMethod::tls()).unwrap();
-    acceptor.builder_mut().set_certificate_chain_file("test/cert.pem").unwrap();
-    acceptor.builder_mut().set_private_key_file("test/key.pem", X509_FILETYPE_PEM).unwrap();
+    acceptor
+        .builder_mut()
+        .set_certificate_chain_file("test/cert.pem")
+        .unwrap();
+    acceptor
+        .builder_mut()
+        .set_private_key_file("test/key.pem", X509_FILETYPE_PEM)
+        .unwrap();
     let acceptor = acceptor.build();
 
     let http = Http::new();
@@ -55,7 +65,8 @@ fn main() {
             let http = &http;
             let handle = &handle;
             let pool = pool.clone();
-            acceptor.accept_async(s)
+            acceptor
+                .accept_async(s)
                 .map_err(|e| {
                     println!("error handshaking: {}", e);
                     ()
@@ -64,6 +75,7 @@ fn main() {
                     http.bind_connection(handle, s, addr, Handler(pool));
                     Ok(())
                 })
+                .or_else(|()| Ok(()))
         });
 
     core.run(fut).unwrap();
